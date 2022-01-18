@@ -53,17 +53,17 @@ param (
 	[Parameter(Mandatory=$False,HelpMessage="Only recurring appointments with a last occurrence date after the given date will be returned")]
 	[string]$LastOccurrenceAfter,
     
-    [Parameter(Mandatory=$False,HelpMessage="If specified, only appointments with at least this number of exceptions will be returned.  Exceptions include both modified and deleted occurrences.")] 
-    [int]$HasExceptions = -1, 
+    [Parameter(Mandatory=$False,HelpMessage="If specified, only appointments with at least this number of exceptions will be returned.  Exceptions include both modified and deleted occurrences.")] 
+    [int]$HasExceptions = -1, 
 
-    [Parameter(Mandatory=$False,HelpMessage="If specified, only appointments with at least this number of attachments will be returned")] 
-    [int]$HasAttachments = -1, 
+    [Parameter(Mandatory=$False,HelpMessage="If specified, only appointments with at least this number of attachments will be returned")] 
+    [int]$HasAttachments = -1, 
 
 	[Parameter(Mandatory=$False,HelpMessage="If this switch is present, only recurring appointments are returned")]
 	[switch]$IsRecurring,
 
-    [Parameter(Mandatory=$False,HelpMessage="If this switch is present, only recurring appointments that have no end date are returned (must be used with -IsRecurring)")] 
-    [switch]$HasNoEndDate, 
+    [Parameter(Mandatory=$False,HelpMessage="If this switch is present, only recurring appointments that have no end date are returned (must be used with -IsRecurring)")] 
+    [switch]$HasNoEndDate, 
 
 	[Parameter(Mandatory=$False,HelpMessage="If this switch is present, only all-day appointments are returned")]
 	[switch]$IsAllDay,
@@ -112,7 +112,7 @@ param (
 	[switch]$AllowInsecureRedirection,
 	
 	[Parameter(Mandatory=$False,HelpMessage="Log file - activity is logged to this file if specified")]	
-	[string]$LogFile = "",
+	[string]$LogFile,
 	
 	[Parameter(Mandatory=$False,HelpMessage="If specified, an optimised log file creator is used that should be signficantly faster (but may leave file lock applied if script is cancelled)")]
 	[switch]$FastFileLogging,
@@ -127,7 +127,7 @@ param (
 	[string]$TraceFile
 
 )
-$script:ScriptVersion = "1.1.3"
+#$script:ScriptVersion = "1.1.3"
 
 # Define our functions
 
@@ -238,6 +238,7 @@ Function ReportError($Context)
 function LoadLibraries()
 {
     param (
+        [string]$SearchPath,
         [bool]$searchProgramFiles,
         [bool]$searchLocalAppData = $false,
         $dllNames,
@@ -255,6 +256,26 @@ function LoadLibraries()
             $dll = Get-ChildItem $dllName -ErrorAction SilentlyContinue
         }
         catch {}
+
+        if ($SearchPath)
+        {
+            
+            if (test-path -path $SearchPath -PathType container)
+            {
+                if ($dll -eq $null)
+                {
+	                $dll = Get-ChildItem -Recurse $SearchPath -ErrorAction SilentlyContinue | Where-Object { ($_.PSIsContainer -eq $false) -and ( $_.Name -eq $dllName ) }
+	            }
+            }
+            elseif (test-path -path $SearchPath -PathType leaf)
+            {
+                if ($dll -eq $null)
+                {
+	                $dll = Get-Item $SearchPath -ErrorAction SilentlyContinue | Where-Object { ($_.PSIsContainer -eq $false) -and ( $_.Name -eq $dllName ) }
+	            }
+            }
+        }
+        $script:LastError = $Error[0] # We do this to suppress any errors encountered during the search above
 
         if ($searchProgramFiles)
         {
@@ -411,8 +432,15 @@ Function LoadEWSManagedAPI
 {
 	# Find and load the managed API
     $ewsApiLocation = @()
-    $ewsApiLoaded = $(LoadLibraries -searchProgramFiles $true -searchLocalAppData $true -dllNames @("Microsoft.Exchange.WebServices.dll") -dllLocations ([ref]$ewsApiLocation))
-    ReportError "LoadEWSManagedAPI"
+    if (![String]::IsNullOrEmpty($EWSManagedApiPath))
+        {
+        $ewsApiLoaded = $(LoadLibraries -searchPath $EWSManagedApiPath -dllNames @("Microsoft.Exchange.WebServices.dll") -dllLocations ([ref]$ewsApiLocation))
+        }
+    else
+        {
+        $ewsApiLoaded = $(LoadLibraries -searchProgramFiles $true -searchLocalAppData $true -dllNames @("Microsoft.Exchange.WebServices.dll") -dllLocations ([ref]$ewsApiLocation))
+        ReportError "LoadEWSManagedAPI"
+        }
 
     if (!$ewsApiLoaded)
     {
@@ -543,7 +571,6 @@ Function CreateTraceListener($service)
 		        {
 			        private StreamWriter _traceStream = null;
                     private string _lastResponse = String.Empty;
-
 			        public EWSTracer()
 			        {
 				        try
@@ -552,12 +579,10 @@ Function CreateTraceListener($service)
 				        }
 				        catch { }
 			        }
-
 			        ~EWSTracer()
 			        {
                         Close();
 			        }
-
                     public void Close()
 			        {
 				        try
@@ -567,19 +592,14 @@ Function CreateTraceListener($service)
 				        }
 				        catch { }
 			        }
-
-
 			        public void Trace(string traceType, string traceMessage)
 			        {
                         if ( traceType.Equals("EwsResponse") )
                             _lastResponse = traceMessage;
-
                         if ( traceType.Equals("EwsRequest") )
                             _lastResponse = String.Empty;
-
 				        if (_traceStream == null)
 					        return;
-
 				        lock (this)
 				        {
 					        try
@@ -590,7 +610,6 @@ Function CreateTraceListener($service)
 					        catch { }
 				        }
 			        }
-
                     public string LastResponse
                     {
                         get { return _lastResponse; }
